@@ -2,7 +2,6 @@ import pyabf
 import matplotlib.pyplot as plt
 import matplotlib
 matplotlib.use('TkAgg')
-#plt.style.use("ggplot")
 from tkinter import Tk, filedialog, StringVar, Button, Frame
 from matplotlib.widgets import SpanSelector
 from matplotlib.backends.backend_tkagg import NavigationToolbar2Tk
@@ -12,6 +11,7 @@ import threading
 import csv
 import numpy as np
 from scipy import signal
+import pickle 
 
 
 class Segment:
@@ -22,6 +22,13 @@ class Segment:
         self.duration = end_time - start_time
         self.category = category
         self.events = []
+    
+    def serialize(self):
+        return pickle.dumps(self)
+
+    @staticmethod
+    def deserialize(data):
+        return pickle.loads(data)
 
 segments = []
 current_file_index = 0
@@ -34,7 +41,7 @@ def onselect(xmin, xmax):
         return
 
     current_segment = Segment(current_file_name, xmin, xmax, "not selected")
-    span = ax.axvspan(xmin, xmax, color='red', alpha=0.5)
+    span = ax.axvspan(xmin, xmax, color='grey', alpha=0.3)
     plt.draw()
 
 def toggle_segmentation():
@@ -59,11 +66,21 @@ def mark_as_burst(event=None):
 def mark_as_discard(event=None):
     global current_segment
     current_segment.category = "discard"
-    current_segment.color = 'grey'
-    span = ax.axvspan(current_segment.start_time, current_segment.end_time, color='grey', alpha=0.3)
+    current_segment.color = 'red'
+    span = ax.axvspan(current_segment.start_time, current_segment.end_time, color='red', alpha=0.3)
     plt.draw()
     segments.append(current_segment)  # Add current_segment to segments list
     print(f"Segment marked as 'discard': {current_segment.file_name}, {current_segment.start_time}s to {current_segment.end_time}s")
+
+def add_files(event=None):
+    global file_names
+    #root.withdraw()
+    new_files = filedialog.askopenfilenames(filetypes=[('ABF Files', '*.abf')])
+    file_names.extend(new_files)
+    print(f"Added files: {', '.join(new_files)}")
+    if len(file_names) > 0:
+        update_graph()
+        update_dropdown_menu()
 
 def save_table(event=None):
     global segments
@@ -80,15 +97,28 @@ def save_table(event=None):
                 writer.writerow([segment.file_name, segment.start_time, segment.end_time, segment.duration, segment.category, segment.events])
         print(f"Table saved as {filename}")
 
-def add_files(event=None):
-    global file_names
-    #root.withdraw()
-    new_files = filedialog.askopenfilenames()
-    file_names.extend(new_files)
-    print(f"Added files: {', '.join(new_files)}")
-    if len(file_names) > 0:
+def save_segments(event=None):
+    global segments
+    if len(segments) == 0:
+        print("No segments to save.")
+        return
+
+    filename = filedialog.asksaveasfilename(defaultextension='.pickle', filetypes=[('Pickle Files', '*.pickle')])
+    if filename:
+        with open(filename, 'wb') as file:
+            pickle.dump(segments, file)
+        print(f"Segments saved as {filename}")
+
+
+def load_segments(event=None):
+    global segments
+    filename = filedialog.askopenfilename(filetypes=[('Pickle Files', '*.pickle')])
+    if filename:
+        with open(filename, 'rb') as file:
+            segments = pickle.load(file)
+        print(f"Segments loaded from {filename}")
+
         update_graph()
-        update_dropdown_menu()
 
 def ButterBandStop(current):
     fs = 20000  # Sampling frequency (Hz)
@@ -107,6 +137,10 @@ def filter_trace(event=None):
 
     # Get the current trace data
     current_trace = abf.sweepY
+
+    # Store the current zoom settings
+    xlim = ax.get_xlim()
+    ylim = ax.get_ylim()
 
     # Apply the Butterworth bandstop filter if it's not already applied
     if not filter_button.is_filtered:
@@ -128,18 +162,31 @@ def filter_trace(event=None):
         filter_button.is_filtered = False
         filter_button.config(text='Filter')
 
+    # Restore the previous zoom settings
+    ax.set_xlim(xlim)
+    ax.set_ylim(ylim)
+    # Load and plot segments for the current file, if available
+    current_segments = get_segments_for_file(current_file_name)
+    if current_segments:
+        for segment in current_segments:
+            color = 'green' if segment.category == 'burst' else 'red'
+            span = ax.axvspan(segment.start_time, segment.end_time, color=color, alpha=0.3)
+
     canvas.draw()
 
 def next_file(event=None):
     global current_file_index
     current_file_index = (current_file_index + 1) % len(file_names)
     filter_button.is_filtered = False  # Reset the filtering state
+    filter_button.config(text='Filter')
     update_graph()
     update_dropdown_menu()
 
 def previous_file(event=None):
     global current_file_index
     current_file_index = (current_file_index - 1) % len(file_names)
+    filter_button.is_filtered = False # Reset the filtering state
+    filter_button.config(text='Filter')
     update_graph()
     update_dropdown_menu()
 
@@ -152,7 +199,22 @@ def update_graph():
     #ax.set_title(current_file_name)
     ax.set_xlabel("Time (s)")
     ax.set_ylabel("Current (pA)")
+
+    # Load and plot segments for the current file, if available
+    current_segments = get_segments_for_file(current_file_name)
+    if current_segments:
+        for segment in current_segments:
+            color = 'green' if segment.category == 'burst' else 'red'
+            span = ax.axvspan(segment.start_time, segment.end_time, color=color, alpha=0.3)
     canvas.draw()
+
+def get_segments_for_file(file_name):
+    global segments
+    file_segments = []
+    for segment in segments:
+        if segment.file_name == file_name:
+            file_segments.append(segment)
+    return file_segments
 
 def update_dropdown_menu():
     global file_menu, file_names, current_file_index, current_file_name, current_file_menu_var
@@ -161,21 +223,25 @@ def update_dropdown_menu():
 
     if len(file_names) > 0:
         for file_name in file_names:
-            file_menu["menu"].add_command(label=file_name, command=lambda value=file_name: set_current_file(value))
+            name= file_name.split("/")[-1].split(".")[0]
+            file_menu["menu"].add_command(label=name, command=lambda value=file_name: set_current_file(value))
         current_file_name = file_names[current_file_index]
+        display_name = str(current_file_index) + ": " + current_file_name.split("/")[-1].split(".")[0]
+        current_file_menu_var.set(display_name)
         update_graph()
-        display_name = current_file_name.split("/")[-1].split(".")[0]
     else:
         display_name = "No files added"
-    
-    current_file_menu_var.set(display_name)
+        current_file_menu_var.set(display_name)
 
 def set_current_file(value):
-    global current_file_name
-    current_file_name.set(value)
+    global current_file_name, current_file_index
+    current_file_name = str(value)
     selected_index = file_names.index(value)
     if selected_index != current_file_index:
         current_file_index = selected_index
+        current_file_name= value
+        display_name = str(current_file_index) + ": " + current_file_name.split("/")[-1].split(".")[0]
+        current_file_menu_var.set(display_name)
         update_graph()
 
 def enable_zoom_and_scroll(canvas):
@@ -193,12 +259,6 @@ def enable_zoom_and_scroll(canvas):
         ax.set_xlim(ax.get_xlim()[0] + x_shift, ax.get_xlim()[1] + x_shift)
         canvas.draw_idle()
 
-    def on_motion(event):
-        if event.button == '2' and event.xdata and event.ydata:
-            ax.set_xlim(ax.get_xlim()[0] - event.xdata * 0.001, ax.get_xlim()[1] - event.xdata * 0.001)
-            ax.set_ylim(ax.get_ylim()[0] + event.ydata * 0.001, ax.get_ylim()[1] + event.ydata * 0.001)
-            canvas.draw_idle()
-
     def on_key_press(event):
         if event.key == '+':
             ax.set_xlim(ax.get_xlim()[0] * 1.05, ax.get_xlim()[1] * 0.95)
@@ -206,12 +266,33 @@ def enable_zoom_and_scroll(canvas):
         elif event.key == '-':
             ax.set_xlim(ax.get_xlim()[0] * 0.95, ax.get_xlim()[1] * 1.05)
             canvas.draw_idle()
-        elif event.key == '{':
+        elif event.key == '}':
             ax.set_ylim(ax.get_ylim()[0] * 1.05, ax.get_ylim()[1] * 0.95)
             canvas.draw_idle()
-        elif event.key == '}':
+        elif event.key == '{':
             ax.set_ylim(ax.get_ylim()[0] * 0.95, ax.get_ylim()[1] * 1.05)
             canvas.draw_idle()
+        elif event.key == 'z':
+            ax.set_xlim(ax.get_xlim()[0], ax.get_xlim()[0] + 0.5)
+            canvas.draw_idle()
+
+
+    def on_motion(event):
+        if event.button == '2' and event.xdata and event.ydata:
+            x_shift = event.xdata * 0.001
+            y_shift = event.ydata * 0.001
+            x_limits = ax.get_xlim()
+            y_limits = ax.get_ylim()
+            x_center = (x_limits[0] + x_limits[1]) / 2
+            y_center = (y_limits[0] + y_limits[1]) / 2
+            x_scale = (x_limits[1] - x_limits[0]) / 2
+            y_scale = (y_limits[1] - y_limits[0]) / 2
+            new_x_limits = [x_center - x_scale * 1.05, x_center + x_scale * 1.05]
+            new_y_limits = [y_center - y_scale * 1.05, y_center + y_scale * 1.05]
+            ax.set_xlim(new_x_limits[0] + x_shift, new_x_limits[1] + x_shift)
+            ax.set_ylim(new_y_limits[0] + y_shift, new_y_limits[1] + y_shift)
+            canvas.draw_idle()
+
 
     def toggle_zoom_and_scroll():
         if zoom_scroll_button.config('text')[-1] == 'Disable Zoom/Scroll':
@@ -259,6 +340,16 @@ def plot_abf_files():
     toolbar.update()
     canvas.get_tk_widget().pack(side='bottom', fill='both', expand=True)
 
+    # Add dropdown menu of file list
+    current_file_name = ""
+    current_file_menu_var = StringVar(root)
+    
+    file_menu = OptionMenu(root, current_file_menu_var, *file_names)
+    file_menu.pack(side="top", anchor='nw')
+
+    # Call the update_dropdown_menu function
+    update_dropdown_menu()
+
     # Load files
     add_files_button = Button(master=root, command=add_files, text='Add Files')
     add_files_button.pack(side="left")
@@ -294,24 +385,9 @@ def plot_abf_files():
     save_button = Button(master=root, command=save_table, text='Save Table')
     save_button.pack(side="left")
 
-    # Add dropdown menu of file list
-    current_file_name = StringVar(root)
-
-    current_file_menu_var = StringVar(root)
-    current_file_menu_var.set(current_file_name)
-
-    if len(file_names) > 0:
-        current_file_name.set(file_names[current_file_index])
-    else:
-        current_file_name.set("No files added")
-    
-    file_menu_frame = Frame(root)
-    file_menu_frame.pack(side='top', fill='x')
-    file_menu = OptionMenu(root, current_file_menu_var, *file_names)
-    file_menu.pack(side="top")
-
-    # Call the update_dropdown_menu function
-    update_dropdown_menu()
+    # save and load segments
+    Button(root, text="Save Segments", command=save_segments).pack(side="left", padx=5, pady=5)
+    Button(root, text="Load Segments", command=load_segments).pack(side="left", padx=5, pady=5)
 
     button_frame = Frame(root)
     button_frame.pack(side='top', fill='x')
