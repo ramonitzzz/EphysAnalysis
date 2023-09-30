@@ -2,7 +2,9 @@ import pyabf
 import matplotlib.pyplot as plt
 import matplotlib
 matplotlib.use('TkAgg')
-from tkinter import Tk, filedialog, StringVar, Button, Frame
+#plt.style.use("ggplot")
+from tkinter import *
+from tkinter import Tk, filedialog, StringVar, Button, Frame, Label
 from matplotlib.widgets import SpanSelector
 from matplotlib.backends.backend_tkagg import NavigationToolbar2Tk
 from tkinter.ttk import OptionMenu
@@ -34,6 +36,8 @@ segments = []
 current_file_index = 0
 file_names = []
 current_file_name = ""
+current_segment = None
+segmentation_enabled = False
 
 def onselect(xmin, xmax):
     global current_segment, segmentation_enabled
@@ -71,6 +75,64 @@ def mark_as_discard(event=None):
     plt.draw()
     segments.append(current_segment)  # Add current_segment to segments list
     print(f"Segment marked as 'discard': {current_segment.file_name}, {current_segment.start_time}s to {current_segment.end_time}s")
+
+## added functionality to edit segments
+def edit_segment(segment):
+    global segments
+    # Open a dialog box to edit the start and end time of the segment
+    edit_window = Tk()
+    edit_window.title("Edit Segment")
+    
+    start_time_label = Label(edit_window, text="Start Time (s):")
+    start_time_label.pack()
+    start_time_entry = Entry(edit_window)
+    start_time_entry.insert(END, str(segment.start_time))
+    start_time_entry.pack()
+
+    end_time_label = Label(edit_window, text="End Time (s):")
+    end_time_label.pack()
+    end_time_entry = Entry(edit_window)
+    end_time_entry.insert(END, str(segment.end_time))
+    end_time_entry.pack()
+
+    def save_changes():
+        new_start_time = float(start_time_entry.get())
+        new_end_time = float(end_time_entry.get())
+        segment.start_time = new_start_time
+        segment.end_time = new_end_time
+        segment.duration = new_end_time - new_start_time
+        filter_trace()
+        plt.draw()
+        edit_window.destroy()
+        edit_window.quit()
+    
+    save_button = Button(edit_window, text="Save", command=save_changes)
+    save_button.pack()
+    
+    edit_window.mainloop()
+
+def delete_segment(segment):
+    global segments
+    segments.remove(segment)
+    filter_trace()
+    plt.draw()
+
+def on_double_click(event):
+    if event.button == 1 and event.dblclick:  # Left button (double-click)
+        for segment in segments:
+            if segment.start_time <= event.xdata <= segment.end_time:
+                edit_segment(segment)
+                break
+    #canvas.mpl_connect('button_press_event', on_double_click)
+
+def on_right_click(event):
+    if event.button == 3:  # Right button (click)
+        for segment in segments:
+            if segment.start_time <= event.xdata <= segment.end_time:
+                delete_segment(segment)
+                break
+    #canvas.mpl_connect('button_release_event', on_right_click)
+##
 
 def add_files(event=None):
     global file_names
@@ -224,6 +286,7 @@ def update_dropdown_menu():
     if len(file_names) > 0:
         for file_name in file_names:
             name= file_name.split("/")[-1].split(".")[0]
+            #file_menu["menu"].add_command(label=file_name, command=lambda value=file_name: set_current_file(value))
             file_menu["menu"].add_command(label=name, command=lambda value=file_name: set_current_file(value))
         current_file_name = file_names[current_file_index]
         display_name = str(current_file_index) + ": " + current_file_name.split("/")[-1].split(".")[0]
@@ -261,19 +324,33 @@ def enable_zoom_and_scroll(canvas):
 
     def on_key_press(event):
         if event.key == '+':
-            ax.set_xlim(ax.get_xlim()[0] * 1.05, ax.get_xlim()[1] * 0.95)
+            ax.set_xlim(ax.get_xlim()[0] * 1.005, ax.get_xlim()[1] * 0.995)
             canvas.draw_idle()
         elif event.key == '-':
-            ax.set_xlim(ax.get_xlim()[0] * 0.95, ax.get_xlim()[1] * 1.05)
-            canvas.draw_idle()
-        elif event.key == '}':
-            ax.set_ylim(ax.get_ylim()[0] * 1.05, ax.get_ylim()[1] * 0.95)
+            ax.set_xlim(ax.get_xlim()[0] * 0.995, ax.get_xlim()[1] * 1.005)
             canvas.draw_idle()
         elif event.key == '{':
+            ax.set_ylim(ax.get_ylim()[0] * 1.05, ax.get_ylim()[1] * 0.95)
+            canvas.draw_idle()
+        elif event.key == '}':
             ax.set_ylim(ax.get_ylim()[0] * 0.95, ax.get_ylim()[1] * 1.05)
             canvas.draw_idle()
         elif event.key == 'z':
-            ax.set_xlim(ax.get_xlim()[0], ax.get_xlim()[0] + 0.5)
+            ax.set_xlim(ax.get_xlim()[0], ax.get_xlim()[0] + 2)
+            canvas.draw_idle()
+        elif event.key == 'a':
+            ax.set_xlim(ax.get_xlim()[0], ax.get_xlim()[0]+10)
+            ax.set_ylim(-500, 50)
+            canvas.draw_idle()
+        elif event.key == 'f':
+            ax.set_xlim(0, 180)
+            ax.set_ylim(-800, 50)
+            canvas.draw_idle()
+        elif event.key == 'r':
+            ax.set_xlim(ax.get_xlim()[0] * 1.005, ax.get_xlim()[1] * 0.995)
+            canvas.draw_idle()
+        elif event.key == 'e':
+            ax.set_xlim(ax.get_xlim()[0] * 0.995, ax.get_xlim()[1] * 1.005)
             canvas.draw_idle()
 
 
@@ -328,6 +405,7 @@ def plot_abf_files():
     root.protocol("WM_DELETE_WINDOW", on_closing)
 
     fig, ax = plt.subplots(facecolor="gainsboro")
+    fig.tight_layout()
 
     canvas = FigureCanvasTkAgg(fig, master=root)
     canvas.draw()
@@ -393,6 +471,9 @@ def plot_abf_files():
     button_frame.pack(side='top', fill='x')
     
     enable_zoom_and_scroll(canvas)
+
+    canvas.mpl_connect('button_press_event', on_double_click)
+    canvas.mpl_connect('button_press_event', on_right_click)
 
     root.mainloop()
 
