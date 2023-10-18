@@ -506,7 +506,19 @@ class FileManager:
                     self.delete_segment(segment)
                     break
 
+    def toggle_peaks(self):
+        global peaks_enabled
+        peaks_enabled = not peaks_enabled
+
+        if peaks_enabled:
+            toggle_peaks_button.config(text='Disable Peaks Selection')
+        else:
+            toggle_peaks_button.config(text='Enable Peaks Selection')
+
     def setPeak(self, event):
+        if not peaks_enabled:
+            return
+
         self.current_peak = Peak(self.trace)
         self.current_peak.on_line_click(event)
         self.peaks.append(self.current_peak)
@@ -515,11 +527,13 @@ class FileManager:
         for peak in self.trace.peaks:
             ax.plot(peak.peak_x, peak.peak_y, 'ro')
             fig.canvas.draw()
+    
+
 
         
 
 def EphysApp():
-    global canvas, ax, fig,  filter_button, segmentation_enabled, segments, peaks, traces, toggle_segmentation_button, file_menu, current_file_menu_var, root
+    global canvas, ax, fig,  filter_button, segmentation_enabled, segments, peaks, traces, toggle_segmentation_button, file_menu, current_file_menu_var, root, peaks_enabled, toggle_peaks_button
     root= Tk()
     root.title("Ephys Analysis Tool")
     file_names = []
@@ -590,6 +604,11 @@ def EphysApp():
 
     discard_button = Button(master=root, command=FileMan.mark_as_discard, text='Mark Discard')
     discard_button.pack(side="left")
+
+    #Enable and disable peak selection
+    peaks_enabled = False
+    toggle_peaks_button = Button(master=root, command=FileMan.toggle_peaks, text='Enable Peak Selection')
+    toggle_peaks_button.pack(side="left")
 
     # Export table
     save_button = Button(master=root, command=FileMan.save_table, text='Save Table')

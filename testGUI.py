@@ -21,6 +21,7 @@ def EphysApp():
 
     def on_closing(event):
         frame.Close()
+        frame.Destroy()
 
     frame.Bind(wx.EVT_CLOSE, on_closing)
 
@@ -78,6 +79,7 @@ def EphysApp():
     toggle_segmentation_button = wx.Button(panel, label='Enable Segmentation')
     burst_button = wx.Button(panel, label='Mark Burst')
     discard_button = wx.Button(panel, label='Mark Discard')
+    toggle_peaks_button = wx.Button(panel, label= 'Enable Peak Selection')
     save_button = wx.Button(panel, label='Save Table')
     save_segments_button = wx.Button(panel, label='Save Segments')
     load_segments_button = wx.Button(panel, label='Load Segments')
@@ -92,6 +94,7 @@ def EphysApp():
     toggle_segmentation_button.Bind(wx.EVT_BUTTON, FileMan.toggle_segmentation)
     burst_button.Bind(wx.EVT_BUTTON, FileMan.mark_as_burst)
     discard_button.Bind(wx.EVT_BUTTON, FileMan.mark_as_discard)
+    toggle_peaks_button.Bind(wx.EVT_BUTTON, FileMan.toggle_peaks)
     save_button.Bind(wx.EVT_BUTTON, FileMan.save_table)
     save_segments_button.Bind(wx.EVT_BUTTON, FileMan.save_segments)
     load_segments_button.Bind(wx.EVT_BUTTON, FileMan.load_segments)
